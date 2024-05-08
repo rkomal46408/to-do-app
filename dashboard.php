@@ -1,4 +1,3 @@
-
 <?php
 session_start();
 include 'db.php';  // Include the database connection file
@@ -12,39 +11,6 @@ $userID = $_SESSION['userID'];
 $query = $pdo->prepare("SELECT username FROM Users WHERE userID = ?");
 $query->execute([$userID]);
 $user = $query->fetch();
-
-// Handle task addition and update
-if (isset($_POST['addTask']) || isset($_POST['updateTask'])) {
-    $title = $_POST['title'];
-    $description = $_POST['description'];
-    $dueDate = $_POST['dueDate'];
-    $priority = $_POST['priority'];
-    $category = $_POST['category'];
-    if (isset($_POST['updateTask'])) {
-        $taskID = $_POST['taskID'];
-        $updateTask = $pdo->prepare("UPDATE Tasks SET title = ?, description = ?, dueDate = ?, priority = ?, category = ? WHERE taskID = ?");
-        $updateTask->execute([$title, $description, $dueDate, $priority, $category, $taskID]);
-    } else {
-        $insertTask = $pdo->prepare("INSERT INTO Tasks (userID, title, description, dueDate, priority, category, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')");
-        $insertTask->execute([$userID, $title, $description, $dueDate, $priority, $category]);
-    }
-    header('Location: dashboard.php'); // Refresh the page
-}
-
-// Handle task completion toggle
-if (isset($_POST['toggleComplete'])) {
-    $taskID = $_POST['taskID'];
-    $taskStatus = $_POST['taskStatus'] == 'pending' ? 'completed' : 'pending';
-    $pdo->prepare("UPDATE Tasks SET status = ? WHERE taskID = ?")->execute([$taskStatus, $taskID]);
-    header('Location: dashboard.php'); // Refresh the page to update visual
-}
-
-// Handle task deletion
-if (isset($_POST['deleteTask'])) {
-    $taskID = $_POST['taskID'];
-    $pdo->prepare("DELETE FROM Tasks WHERE taskID = ?")->execute([$taskID]);
-    header('Location: dashboard.php'); // Refresh the page to reflect changes
-}
 
 // Fetch all tasks for the user
 $tasksQuery = $pdo->prepare("SELECT * FROM Tasks WHERE userID = ?");
@@ -63,7 +29,6 @@ if (isset($_POST['logout'])) {
     header('Location: index.php');
     exit();
 }
-
 ?>
 
 <!DOCTYPE html>
@@ -75,12 +40,6 @@ if (isset($_POST['logout'])) {
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <style>
-
-
-    </style>
-    
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -101,14 +60,13 @@ if (isset($_POST['logout'])) {
 
 <div class="container">
     <div class="row" style="margin-top:25px">
-        
-
         <div class="col-md-4 text-center" style="margin-top:8%">
             <h2>Task Manager</h2>
             <p>Stay organized and productive.</p>
-            <button class="btn btn-primary mb-3" data-toggle="modal" data-target="#addTaskModal"><i class="fas fa-plus-circle"></i> Add New Task</button>
+            <button class="btn btn-primary mb-3" data-toggle="modal" data-target="#addTaskModal" onclick="clearForm()"><i class="fas fa-plus-circle"></i> Add New Task</button>
+            <button class="btn btn-secondary mb-3" onclick="syncTasks()"><i class="fas fa-sync"></i> Sync</button>
+            <div id="message" class="alert" style="display:none;"></div>
         </div>
-
         
         <div class="col-md-4">
             <canvas id="pointChart"></canvas>
@@ -135,15 +93,13 @@ if (isset($_POST['logout'])) {
                                 <th scope="col">Delete</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="taskTableBody">
                             <?php foreach ($tasks as $task): ?>
-                            <tr class="<?php echo $task['status'] == 'completed' ? 'table-success' : ''; ?>">
+                            <tr class="<?php echo $task['status'] == 'completed' ? 'table-success' : ''; ?>" id="taskRow-<?php echo $task['taskID']; ?>">
                                 <td>
-                                    <form method="post">
-                                        <input type="hidden" name="taskID" value="<?php echo $task['taskID']; ?>">
-                                        <input type of "hidden" name="taskStatus" style="display:none" value="<?php echo $task['status']; ?>">
-                                        <button type="submit" name="toggleComplete" class="btn btn-outline-success btn-sm"><?php echo $task['status'] == 'completed' ? '<i class="fas fa-redo"></i>' : '<i class="fas fa-check"></i>'; ?></button>
-                                    </form>
+                                    <button type="button" class="btn btn-outline-success btn-sm" onclick="toggleComplete(<?php echo $task['taskID']; ?>, '<?php echo $task['status']; ?>')">
+                                        <?php echo $task['status'] == 'completed' ? '<i class="fas fa-redo"></i>' : '<i class="fas fa-check"></i>'; ?>
+                                    </button>
                                 </td>
                                 <td><?php echo htmlspecialchars($task['title']); ?></td>
                                 <td><?php echo htmlspecialchars($task['description']); ?></td>
@@ -151,13 +107,14 @@ if (isset($_POST['logout'])) {
                                 <td><?php echo htmlspecialchars($task['category']); ?></td>
                                 <td><?php echo htmlspecialchars($task['dueDate']); ?></td>
                                 <td>
-                                    <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#addTaskModal" onclick="editTask(<?php echo $task['taskID'] . ', \'' . addslashes($task['title']) . '\', \'' . addslashes($task['description']) . '\', \'' . $task['dueDate'] . '\', \'' . $task['priority'] . '\', \'' . $task['category'] . '\''; ?>)"><i class="fas fa-edit"></i></button>
+                                    <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#addTaskModal" onclick="editTask(<?php echo $task['taskID'] . ', \'' . addslashes($task['title']) . '\', \'' . addslashes($task['description']) . '\', \'' . $task['dueDate'] . '\', \'' . $task['priority'] . '\', \'' . $task['category'] . '\''; ?>)">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
                                 </td>
                                 <td>
-                                    <form method="post">
-                                        <input type="hidden" name="taskID" value="<?php echo $task['taskID']; ?>">
-                                        <button type="submit" name="deleteTask" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
-                                    </form>
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="deleteTask(<?php echo $task['taskID']; ?>)">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
@@ -180,7 +137,7 @@ if (isset($_POST['logout'])) {
                 </button>
             </div>
             <div class="modal-body">
-                <form method="POST">
+                <form id="taskForm">
                     <input type="hidden" id="taskID" name="taskID">
                     <div class="form-group">
                         <label for="title">Title</label>
@@ -208,8 +165,8 @@ if (isset($_POST['logout'])) {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary" name="addTask">Save Task</button>
-                        <button type="submit" class="btn btn-info" name="updateTask">Update Task</button>
+                        <button type="button" class="btn btn-primary" onclick="saveTask()" id="saveTaskButton">Save Task</button>
+                        <button type="button" class="btn btn-info" onclick="updateTask()" id="updateTaskButton">Update Task</button>
                     </div>
                 </form>
             </div>
@@ -217,14 +174,21 @@ if (isset($_POST['logout'])) {
     </div>
 </div>
 
- <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <span>Productivity App</span>
-        </div>
-    </footer>
-    
+
+
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
+function clearForm() {
+    $('#taskForm')[0].reset();
+    $('#taskID').val('');
+    $('#addTaskModalLabel').text('Add Task');
+    $('#saveTaskButton').show();
+    $('#updateTaskButton').hide();
+}
+
 function editTask(taskID, title, description, dueDate, priority, category) {
     document.getElementById('taskID').value = taskID;
     document.getElementById('title').value = title;
@@ -233,60 +197,323 @@ function editTask(taskID, title, description, dueDate, priority, category) {
     document.getElementById('priority').value = priority;
     document.getElementById('category').value = category;
     document.getElementById('addTaskModalLabel').innerHTML = 'Edit Task';
+    $('#saveTaskButton').hide();
+    $('#updateTaskButton').show();
 }
-</script>
 
-<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-                    <script>
-                        var ctx = document.getElementById('completionChart').getContext('2d');
-                        var completionChart = new Chart(ctx, {
-                            type: 'doughnut',
-                            data: {
-                                labels: ['Completed', 'Pending'],
-                                datasets: [{
-                                    label: 'Task Status',
-                                    data: [<?php echo $completedTasks; ?>, <?php echo $pendingTasks; ?>],
-                                    backgroundColor: ['rgb(75, 192, 192)', 'rgb(255, 99, 132)'],
-                                    borderColor: ['rgb(75, 192, 192)', 'rgb(255, 99, 132)'],
-                                    borderWidth: 1
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                legend: {
-                                    position: 'bottom',
-                                },
-                                animation: {
-                                    animateScale: true,
-                                    animateRotate: true
-                                }
-                            }
-                        });
-                    </script>
-                    <canvas id="pointChart"></canvas>
-                    <script>
-                        var ptx = document.getElementById('pointChart').getContext('2d');
-                        var pointChart = new Chart(ptx, {
-                            type: 'doughnut',
-                            data: {
-                                labels: ['Completion Score'],
-                                datasets: [{
-                                    label: 'Completion Score',
-                                    data: [<?php echo $completionScore; ?>, 100 - <?php echo $completionScore; ?>],
-                                    backgroundColor: ['rgb(54, 162, 235)', 'rgba(211, 211, 211)'],
-                                    borderColor: ['rgb(54, 162, 235)'],
-                                    borderWidth: 1
-                                }]
-                            },
-                            options: {
-                                circumference: 180,
-                                rotation: -90,
-                                responsive: true
-                            }
-                        });
-                    </script>
+function saveTask() {
+    var formData = $('#taskForm').serialize();
+    var task = {
+        title: $('#title').val(),
+        description: $('#description').val(),
+        dueDate: $('#dueDate').val(),
+        priority: $('#priority').val(),
+        category: $('#category').val(),
+        action: 'addTask'
+    };
+    if (navigator.onLine) {
+        $.ajax({
+            type: 'POST',
+            url: 'task_actions.php',
+            data: formData + '&action=addTask',
+            dataType: 'json',
+            success: function(response) {
+                $('#addTaskModal').modal('hide');
+                showMessage(response.message, response.success ? 'alert-success' : 'alert-danger');
+                if (response.success) {
+                    appendTaskRow(response.task);
+                    updateCharts();
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(xhr.responseText);
+            }
+        });
+    } else {
+        var tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+        task.taskID = Date.now();
+        task.status = 'pending';
+        tasks.push(task);
+        localStorage.setItem('tasks', JSON.stringify(tasks));
+        $('#addTaskModal').modal('hide');
+        showMessage('Task saved locally', 'alert-warning');
+        appendTaskRow(task);
+        updateCharts();
+    }
+}
+
+function updateTask() {
+    var formData = $('#taskForm').serialize();
+    var task = {
+        taskID: $('#taskID').val(),
+        title: $('#title').val(),
+        description: $('#description').val(),
+        dueDate: $('#dueDate').val(),
+        priority: $('#priority').val(),
+        category: $('#category').val(),
+        action: 'updateTask'
+    };
+    if (navigator.onLine) {
+        $.ajax({
+            type: 'POST',
+            url: 'task_actions.php',
+            data: formData + '&action=updateTask',
+            dataType: 'json',
+            success: function(response) {
+                $('#addTaskModal').modal('hide');
+                showMessage(response.message, response.success ? 'alert-success' : 'alert-danger');
+                if (response.success) {
+                    updateTaskRow(response.task);
+                    updateCharts();
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(xhr.responseText);
+            }
+        });
+    } else {
+        var tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+        var taskIndex = tasks.findIndex(t => t.taskID == task.taskID);
+        if (taskIndex > -1) {
+            tasks[taskIndex] = task;
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+            $('#addTaskModal').modal('hide');
+            showMessage('Task updated locally', 'alert-warning');
+            updateTaskRow(task);
+            updateCharts();
+        }
+    }
+}
+
+function deleteTask(taskID) {
+    if (!confirm("Are you sure you want to delete this task?")) {
+        return;
+    }
+    if (navigator.onLine) {
+        $.ajax({
+            type: 'POST',
+            url: 'task_actions.php',
+            data: { taskID: taskID, action: 'deleteTask' },
+            dataType: 'json',
+            success: function(response) {
+                showMessage(response.message, response.success ? 'alert-success' : 'alert-danger');
+                if (response.success) {
+                    removeTaskRow(taskID);
+                    updateCharts();
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(xhr.responseText);
+            }
+        });
+    } else {
+        var tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+        tasks = tasks.filter(t => t.taskID != taskID);
+        localStorage.setItem('tasks', JSON.stringify(tasks));
+        showMessage('Task deleted locally', 'alert-warning');
+        removeTaskRow(taskID);
+        updateCharts();
+    }
+}
+
+function toggleComplete(taskID, currentStatus) {
+    if (navigator.onLine) {
+        $.ajax({
+            type: 'POST',
+            url: 'task_actions.php',
+            data: { taskID: taskID, taskStatus: currentStatus, action: 'toggleComplete' },
+            dataType: 'json',
+            success: function(response) {
+                showMessage(response.message, response.success ? 'alert-success' : 'alert-danger');
+                if (response.success) {
+                    updateTaskRow(response.task);
+                    updateCharts();
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(xhr.responseText);
+            }
+        });
+    } else {
+        var tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+        var taskIndex = tasks.findIndex(t => t.taskID == taskID);
+        if (taskIndex > -1) {
+            tasks[taskIndex].status = currentStatus == 'pending' ? 'completed' : 'pending';
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+            showMessage('Task status updated locally', 'alert-warning');
+            updateTaskRow(tasks[taskIndex]);
+            updateCharts();
+        }
+    }
+}
+
+function syncTasks() {
+    var tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+    if (tasks.length === 0) {
+        showMessage('No tasks to sync', 'alert-info');
+        return;
+    }
+    tasks.forEach(function(task) {
+        $.ajax({
+            type: 'POST',
+            url: 'task_actions.php',
+            data: task,
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    removeTaskRow(task.taskID);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(xhr.responseText);
+            }
+        });
+    });
+    localStorage.removeItem('tasks');
+    showMessage('All tasks synced', 'alert-success');
+    updateCharts();
+}
+
+function showMessage(message, alertClass) {
+    var messageDiv = $('#message');
+    messageDiv.removeClass('alert-success alert-danger alert-warning alert-info').addClass(alertClass).html(message).show();
+    setTimeout(function() {
+        messageDiv.hide();
+    }, 3000);
+}
+
+function appendTaskRow(task) {
+    var newRow = `<tr class="${task.status === 'completed' ? 'table-success' : ''}" id="taskRow-${task.taskID}">
+        <td>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="toggleComplete(${task.taskID}, '${task.status}')">
+                ${task.status === 'completed' ? '<i class="fas fa-redo"></i>' : '<i class="fas fa-check"></i>'}
+            </button>
+        </td>
+        <td>${task.title}</td>
+        <td>${task.description}</td>
+        <td>${task.priority}</td>
+        <td>${task.category}</td>
+        <td>${task.dueDate}</td>
+        <td>
+            <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#addTaskModal" onclick="editTask(${task.taskID}, '${task.title}', '${task.description}', '${task.dueDate}', '${task.priority}', '${task.category}')">
+                <i class="fas fa-edit"></i>
+            </button>
+        </td>
+        <td>
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteTask(${task.taskID})">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    </tr>`;
+    $('#taskTableBody').append(newRow);
+}
+
+function updateTaskRow(task) {
+    // Find the row by taskID
+    var row = $('#taskRow-' + task.taskID);
+    
+    // Update each cell individually to avoid changing the row structure
+    row.find('td:eq(0)').html(`
+        <button type="button" class="btn btn-outline-success btn-sm" onclick="toggleComplete(${task.taskID}, '${task.status}')">
+            ${task.status === 'completed' ? '<i class="fas fa-redo"></i>' : '<i class="fas fa-check"></i>'}
+        </button>
+    `);
+    
+    row.find('td:eq(1)').text(task.title);
+    row.find('td:eq(2)').text(task.description);
+    row.find('td:eq(3)').text(task.priority);
+    row.find('td:eq(4)').text(task.category);
+    row.find('td:eq(5)').text(task.dueDate);
+    row.find('td:eq(6)').html(`
+        <button class="btn btn-warning btn-sm" data-toggle="modal" data-target="#addTaskModal" onclick="editTask(${task.taskID}, '${task.title}', '${task.description}', '${task.dueDate}', '${task.priority}', '${task.category}')">
+            <i class="fas fa-edit"></i>
+        </button>
+    `);
+    row.find('td:eq(7)').html(`
+        <button type="button" class="btn btn-danger btn-sm" onclick="deleteTask(${task.taskID})">
+            <i class="fas fa-trash"></i>
+        </button>
+    `);
+    
+    // Update the row class based on task status
+    if (task.status === 'completed') {
+        row.addClass('table-success');
+    } else {
+        row.removeClass('table-success');
+    }
+}
+
+
+function removeTaskRow(taskID) {
+    $('#taskRow-' + taskID).remove();
+}
+
+function updateCharts() {
+    var completedTasks = $('#taskTableBody tr.table-success').length;
+    var totalTasks = $('#taskTableBody tr').length;
+    var pendingTasks = totalTasks - completedTasks;
+    var completionScore = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+    completionChart.data.datasets[0].data = [completedTasks, pendingTasks];
+    completionChart.update();
+
+    pointChart.data.datasets[0].data = [completionScore, 100 - completionScore];
+    pointChart.update();
+}
+
+$(document).ready(function() {
+    if (localStorage.getItem('tasks')) {
+        var tasks = JSON.parse(localStorage.getItem('tasks'));
+        tasks.forEach(function(task) {
+            appendTaskRow(task);
+        });
+    }
+});
+
+var ctx = document.getElementById('completionChart').getContext('2d');
+var completionChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: ['Completed', 'Pending'],
+        datasets: [{
+            label: 'Task Status',
+            data: [<?php echo $completedTasks; ?>, <?php echo $pendingTasks; ?>],
+            backgroundColor: ['rgb(75, 192, 192)', 'rgb(255, 99, 132)'],
+            borderColor: ['rgb(75, 192, 192)', 'rgb(255, 99, 132)'],
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        legend: {
+            position: 'bottom',
+        },
+        animation: {
+            animateScale: true,
+            animateRotate: true
+        }
+    }
+});
+
+var ptx = document.getElementById('pointChart').getContext('2d');
+var pointChart = new Chart(ptx, {
+    type: 'doughnut',
+    data: {
+        labels: ['Completion Score'],
+        datasets: [{
+            label: 'Completion Score',
+            data: [<?php echo $completionScore; ?>, 100 - <?php echo $completionScore; ?>],
+            backgroundColor: ['rgb(54, 162, 235)', 'rgba(211, 211, 211)'],
+            borderColor: ['rgb(54, 162, 235)'],
+            borderWidth: 1
+        }]
+    },
+    options: {
+        circumference: 180,
+        rotation: -90,
+        responsive: true
+    }
+});
+</script>
 </body>
 </html>
-
