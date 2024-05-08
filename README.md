@@ -5,10 +5,8 @@ Welcome to the repository of our Gamified Productivity App, designed to enhance 
 
 ## Features
 - **Point-based Gamification System**: Earn points for completing tasks to keep you motivated.
-- **Customizable Themes**: Personalize the look and feel of the app to your liking.
-- **Focus Timer**: Enhance your productivity with our custom focus timer.
 - **Offline Functionality**: Manage your tasks anytime, anywhere, without the need for an internet connection.
-- **Daily Task Summaries**: Stay on top of your tasks with daily summaries.
+- **Task Summaries**: Stay on top of your tasks with daily summaries visuals.
 
 ## Aims
 - To improve user engagement and task management efficiency.
